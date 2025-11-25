@@ -3,6 +3,8 @@ const express = require('express');
 const { initializeDatabase } = require('./config/database');
 const authRoutes = require('./routes/authRoutes');
 
+
+//app
 const app = express();
 
 // Middleware
