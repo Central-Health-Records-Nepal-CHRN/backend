@@ -6,7 +6,8 @@ export const sendMail = async (config) => {
     from: "merohealth@sagarpariyar.com.np",
     to: config.to,
     subject: config.subject,
-    html: config.text,
+    html: config.html,
+    text: config.text,
   });
 
   if (error) {
