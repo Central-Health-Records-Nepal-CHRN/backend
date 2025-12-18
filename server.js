@@ -1,44 +1,38 @@
-require('dotenv').config();
-const express = require('express');
-const { initializeDatabase } = require('./config/database');
-const authRoutes = require('./routes/authRoutes');
+// src/server.ts
+import express from "express";
+import cors from "cors";
+import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import { auth } from "./lib/auth.js";
+import "dotenv/config"
+import { sendMail } from "./utils/sendEmail.js";
 
-
-//app
 const app = express();
+const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Routes
-app.use('/api/auth', authRoutes);
-
-// Health check
-app.get('/', (req, res) => {
-  res.json({ message: 'Auth API is running' });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    success: false, 
-    message: 'Something went wrong!' 
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-
-// Initialize database and start server
-initializeDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
+// CORS (optional, but common)
+app.use(
+  cors({
+     origin: ["http://localhost:3000", "http://127.0.0.1:3000", "exp://192.168.18.16:8082"], 
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
   })
-  .catch(err => {
-    console.error('Failed to initialize database:', err);
-    process.exit(1);
-  });
+);
 
+// Mount Better Auth handler
+// All auth routes will be under /api/auth/*
+app.all("/api/auth/*splat", toNodeHandler(auth));
+
+// Now use express.json for your other routes
+app.use(express.json());
+
+// Example protected route: get the current session
+app.get("/api/me", async (req, res) => {
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(req.headers),
+  });
+  res.json(session);
+});
+
+app.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+});
