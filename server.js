@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 // CORS (optional, but common)
 app.use(
   cors({
-     origin: ["http://localhost:3000", "http://127.0.0.1:3000", "exp://192.168.18.16:8082", "https://merohealth-web.vercel.app"], 
+     origin: ["http://localhost:3000", "http://127.0.0.1:3000", "exp://192.168.18.16:8082", "https://merohealth-web.vercel.app","exp://192.168.1.65:8081"], 
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
