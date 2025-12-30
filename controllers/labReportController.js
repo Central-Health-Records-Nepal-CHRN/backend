@@ -1,4 +1,6 @@
+
 import { query, transaction } from '../config/database.js';
+
 import {
   uploadToCloudinary,
   deleteFromCloudinary,
@@ -11,7 +13,8 @@ import { extractTestsFromImage } from '../services/ocrServices.js';
 ========================================================= */
 export const getLabReports = async (req, res) => {
   try {
-    const userId = req.user?.userId || "c0d655a2-57b6-4f97-97c5-165708225700";
+    const userId = req.user?.userId;
+    console.log("Fetching reports for user:", userId);
     const { page = 1, limit = 10, sortBy = 'report_date', order = 'DESC' } =
       req.query;
 
@@ -104,7 +107,10 @@ export const getLabReportById = async (req, res) => {
 ========================================================= */
 export const createLabReport = async (req, res) => {
   try {
+
     const userId = req.user.userId;
+    console.log("Creating report for user:", userId);
+  
     const { lab_name, report_date, notes, status = 'draft' } = req.body;
 
     const result = await query(

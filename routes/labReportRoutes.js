@@ -10,11 +10,12 @@ import {
   deleteLabReport,
   updateTests,
 } from '../controllers/labReportController.js';
+import { requireAuth } from '../middleware/requireAuth.js';
 
 const router = express.Router();
 
-// 🔐 Protect all routes
 
+router.use(requireAuth);
 
 // GET /api/reports
 router.get('/', getLabReports);

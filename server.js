@@ -4,8 +4,8 @@ import cors from "cors";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { auth } from "./lib/auth.js";
 import "dotenv/config"
-import { sendMail } from "./utils/sendEmail.js";
 import router from "./routes/labReportRoutes.js";
+
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -13,11 +13,13 @@ const port = process.env.PORT || 3000;
 // CORS (optional, but common)
 app.use(
   cors({
-     origin: ["http://localhost:3000", "http://127.0.0.1:3000", "exp://192.168.18.16:8081", "https://merohealth-web.vercel.app","exp://192.168.1.65:8081","exp://192.168.1.106:8081" ], 
+    origin: true, // allow all origins
     methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
+
 
 // Mount Better Auth handler
 // All auth routes will be under /api/auth/*
@@ -39,3 +41,5 @@ app.get("/api/me", async (req, res) => {
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
+
+
