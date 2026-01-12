@@ -1,5 +1,5 @@
 import multer from 'multer';
-import cloudinary from 'cloudinary';
+import {v2 as cloudinary} from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import path from 'path';
 
@@ -15,12 +15,10 @@ const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: 'lab-reports', // Folder name in Cloudinary
+    resource_type: 'image',
     allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
     transformation: [{ width: 1500, height: 1500, crop: 'limit' }], // Optional: resize
-    public_id: (req, file) => {
-      const userId = req.user?.userId || 'anonymous';
-      return `${userId}-${Date.now()}`;
-    },
+   
   },
 });
 

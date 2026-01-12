@@ -20,6 +20,14 @@ app.use(
   })
 );
 
+app.use((req, res, next) => {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`📥 ${req.method} ${req.path}`);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', req.body);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  next();
+});
 
 // Mount Better Auth handler
 // All auth routes will be under /api/auth/*

@@ -1,88 +1,59 @@
-import Tesseract from 'tesseract.js';
-import axios from 'axios';
+import axios from "axios";
+import sharp from "sharp";
+import { createWorker } from "tesseract.js";
 
-/* =========================================
-   UTIL: GET IMAGE BUFFER
-========================================= */
+/* ---------- IMAGE INPUT ---------- */
 const getImageBuffer = async (input) => {
-  if (Buffer.isBuffer(input)) {
-    return input;
-  }
+  if (Buffer.isBuffer(input)) return input;
 
-  // If input is URL (Cloudinary)
-  if (typeof input === 'string') {
-    const response = await axios.get(input, {
-      responseType: 'arraybuffer',
-    });
-    return Buffer.from(response.data);
-  }
-
-  throw new Error('Invalid image input');
-};
-
-/* =========================================
-   PARSE LAB TESTS FROM TEXT
-========================================= */
-const parseLabTests = (text) => {
-  const tests = [];
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-
-  /*
-    Matches patterns like:
-    Hemoglobin 14.5 g/dL 13.5-17.5
-    WBC 7200 cells/µL 4500-11000
-  */
-  const regex =
-    /([A-Za-z().\s/%]+)\s+([\d,.]+)\s*([a-zA-Z/%µ]+)?\s*(\(?\d+[\d.,\-–]+\)?)/;
-
-  lines.forEach((line) => {
-    const match = line.match(regex);
-    if (match) {
-      tests.push({
-        testName: match[1].trim(),
-        value: match[2].replace(/,/g, ''),
-        unit: match[3] || '',
-        normalRange: match[4] || '',
-      });
-    }
+  const res = await axios.get(input, {
+    responseType: "arraybuffer",
   });
 
-  return tests;
+  return Buffer.from(res.data);
 };
 
-/* =========================================
-   MAIN OCR FUNCTION (FREE)
-========================================= */
-export const extractTestsFromImage = async (imageInput) => {
+/* ---------- PREPROCESS ---------- */
+const preprocessImage = async (buffer) => {
+  return sharp(buffer).grayscale().normalize().threshold(150).toBuffer();
+};
+
+/* ---------- CLEAN OCR TEXT ---------- */
+const normalizeText = (text) => {
+  return text
+    .replace(/[O]/g, "0")
+    .replace(/[B]/g, "8")
+    .replace(/[|]/g, "1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+};
+
+/* ---------- MAIN OCR FUNCTION ---------- */
+export const extractTextFromImage = async (imageInput) => {
+  const worker = await createWorker();
+
   try {
+    // ✅ Correct initialization sequence
+    await worker.reinitialize("eng");
+
     const buffer = await getImageBuffer(imageInput);
+    const processed = await preprocessImage(buffer);
 
     const {
       data: { text },
-    } = await Tesseract.recognize(buffer, 'eng', {
-      logger: () => {}, // disable logs
-    });
-
-    const extractedTests = parseLabTests(text);
-
-    const testsWithOrder = extractedTests.map((test, index) => ({
-      ...test,
-      order_index: index,
-    }));
+    } = await worker.recognize(processed);
 
     return {
       success: true,
-      tests: testsWithOrder,
-      count: testsWithOrder.length,
-      raw_text: text,
+      text: normalizeText(text),
     };
   } catch (error) {
-    console.error('OCR error:', error);
+    console.error("OCR Error:", error);
     return {
       success: false,
-      tests: [],
-      count: 0,
-      error: error.message,
+      error: error.message || "OCR failed",
     };
+  } finally {
+    await worker.terminate();
   }
 };

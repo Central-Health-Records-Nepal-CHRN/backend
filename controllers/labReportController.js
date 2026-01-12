@@ -6,7 +6,8 @@ import {
   deleteFromCloudinary,
   getCloudinaryUrl,
 } from '../middleware/upload.js';
-import { extractTestsFromImage } from '../services/ocrServices.js';
+import { extractTextFromImage } from '../services/ocrServices.js';
+import { structureLabData } from '../services/structuredOCR.js';
 
 /* =========================================================
    GET ALL LAB REPORTS (PAGINATED)
@@ -137,11 +138,13 @@ export const createLabReport = async (req, res) => {
    UPLOAD IMAGE + OCR
 ========================================================= */
 export const uploadReportImage = async (req, res) => {
+  
   try {
     const { id } = req.params;
     const userId = req.user.userId;
 
     if (!req.file) {
+      console.log('❌ No file uploaded');
       return res.status(400).json({ success: false, message: 'Image required' });
     }
 
@@ -167,7 +170,8 @@ export const uploadReportImage = async (req, res) => {
     // OCR extraction (multer-storage-cloudinary DOES NOT keep buffer)
     // 👉 So OCR must use Cloudinary image URL instead OR uploadBuffer middleware
     const start = Date.now();
-    const ocrResult = await extractTestsFromImage(url);
+    const extractedText = await extractTextFromImage(url)
+    const ocrResult = await structureLabData(extractedText);
     const processingTime = Date.now() - start;
 
     await transaction(async (client) => {
