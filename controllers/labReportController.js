@@ -138,7 +138,6 @@ export const createLabReport = async (req, res) => {
    UPLOAD IMAGE + OCR
 ========================================================= */
 export const uploadReportImage = async (req, res) => {
-  
   try {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -167,19 +166,27 @@ export const uploadReportImage = async (req, res) => {
     // Uploaded automatically by multer
     const { url, key } = await uploadToCloudinary(req.file, userId);
 
-    // OCR extraction (multer-storage-cloudinary DOES NOT keep buffer)
-    // 👉 So OCR must use Cloudinary image URL instead OR uploadBuffer middleware
+    // OCR extraction
     const start = Date.now();
-    const extractedText = await extractTextFromImage(url)
+    const extractedText = await extractTextFromImage(url);
+    console.log(extractedText)
     const ocrResult = await structureLabData(extractedText);
+    
     const processingTime = Date.now() - start;
 
+    // Validate OCR result structure
+    const testsArray = Array.isArray(ocrResult) ? ocrResult : [];
+    const testsCount = testsArray.length;
+    const ocrSuccess = testsCount > 0;
+
     await transaction(async (client) => {
+      // Update lab_reports with image info
       await client.query(
         'UPDATE lab_reports SET image_url = $1, image_key = $2 WHERE id = $3',
         [url, key, id]
       );
 
+      // Insert OCR log
       await client.query(
         `
         INSERT INTO ocr_logs
@@ -189,16 +196,18 @@ export const uploadReportImage = async (req, res) => {
         [
           id,
           url,
-          JSON.stringify(ocrResult.tests || []),
-          ocrResult.count || 0,
-          ocrResult.success ? 'success' : 'failed',
+          extractedText, // Store the raw extracted text
+          testsCount,
+          ocrSuccess ? 'success' : 'failed',
           processingTime,
         ]
       );
 
-      if (ocrResult.success && ocrResult.tests?.length) {
-        for (let i = 0; i < ocrResult.tests.length; i++) {
-          const test = ocrResult.tests[i];
+      // Insert lab tests if extraction was successful
+      if (ocrSuccess) {
+        for (let i = 0; i < testsArray.length; i++) {
+          const test = testsArray[i];
+          
           await client.query(
             `
             INSERT INTO lab_tests
@@ -207,10 +216,10 @@ export const uploadReportImage = async (req, res) => {
             `,
             [
               id,
-              test.testName,
-              test.value,
-              test.unit,
-              test.normalRange,
+              test.test_name,           // Match the JSON property names
+              test.result,              // "result" not "value"
+              test.units,               // "units" not "unit"
+              test.reference_range,     // "reference_range" not "normalRange"
               i,
             ]
           );
@@ -223,13 +232,18 @@ export const uploadReportImage = async (req, res) => {
       message: 'Image uploaded & OCR completed',
       data: {
         image_url: url,
-        tests_extracted: ocrResult.count || 0,
+        tests_extracted: testsCount,
         processing_time_ms: processingTime,
+        tests: testsArray, // Include the extracted tests in response
       },
     });
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ success: false, message: 'Upload failed' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Upload failed',
+      error: error.message 
+    });
   }
 };
 

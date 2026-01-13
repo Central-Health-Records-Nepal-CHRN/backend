@@ -5,11 +5,40 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 export async function structureLabData(ocrText) {
   // Use 1.5-flash for faster, more accurate JSON extraction
   const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-pro", // Added '-latest'
+  model: "gemini-2.5-flash-lite", // Added '-latest'
 });
 
   const prompt = `
-    Extract lab test results from the provided OCR text into a structured JSON array.
+  You are a medical laboratory report data extractor.
+
+GOAL:
+Extract ALL laboratory test results from the OCR text EXACTLY as written.
+
+STRICT RULES (DO NOT BREAK):
+- Do NOT summarize or shorten the data
+- Do NOT omit any test result
+- Do NOT infer, calculate, or guess values
+- Extract EVERY test row that appears in the OCR text
+- Preserve numeric values and units as text
+- If a value or reference range is missing or unreadable, use null
+- Do NOT provide medical interpretation
+- Return ONLY valid JSON (no explanations, no markdown)
+OUTPUT FORMAT:
+  [
+    {
+      "test_name": string,
+      "result": string | null,
+      "units": string | null,
+      "reference_range": string | null,
+    }
+  ]
+    PROCESSING INSTRUCTIONS:
+- Process the OCR text line-by-line
+- Treat section headers (e.g., HAEMATOLOGY, BIOCHEMISTRY) as separators, not tests
+- After extraction, verify that every test name present in the OCR text appears in the output JSON
+
+OCR TEXT (EXTRACT FROM THIS ONLY):
+<<<
     TEXT: ${ocrText}
   `;
 
@@ -22,7 +51,6 @@ export async function structureLabData(ocrText) {
         responseMimeType: "application/json",
       },
     });
-
     const responseText = result.response.text();
     return JSON.parse(responseText);
     
