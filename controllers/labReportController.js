@@ -1,13 +1,12 @@
-
-import { query, transaction } from '../config/database.js';
+import { query, transaction } from "../config/database.js";
 
 import {
   uploadToCloudinary,
   deleteFromCloudinary,
   getCloudinaryUrl,
-} from '../middleware/upload.js';
-import { extractTextFromImage } from '../services/ocrServices.js';
-import { structureLabData } from '../services/structuredOCR.js';
+} from "../middleware/upload.js";
+import { extractTextFromImage } from "../services/ocrServices.js";
+import { structureLabData } from "../services/structuredOCR.js";
 
 /* =========================================================
    GET ALL LAB REPORTS (PAGINATED)
@@ -16,8 +15,12 @@ export const getLabReports = async (req, res) => {
   try {
     const userId = req.user?.userId;
     console.log("Fetching reports for user:", userId);
-    const { page = 1, limit = 10, sortBy = 'report_date', order = 'DESC' } =
-      req.query;
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = "report_date",
+      order = "DESC",
+    } = req.query;
 
     const offset = (page - 1) * limit;
 
@@ -42,7 +45,7 @@ export const getLabReports = async (req, res) => {
     });
 
     const countResult = await query(
-      'SELECT COUNT(*) FROM lab_reports WHERE user_id = $1',
+      "SELECT COUNT(*) FROM lab_reports WHERE user_id = $1",
       [userId]
     );
 
@@ -57,8 +60,10 @@ export const getLabReports = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get reports error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch reports' });
+    console.error("Get reports error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch reports" });
   }
 };
 
@@ -71,12 +76,14 @@ export const getLabReportById = async (req, res) => {
     const userId = req.user.userId;
 
     const reportResult = await query(
-      'SELECT * FROM lab_reports WHERE id = $1 AND user_id = $2',
+      "SELECT * FROM lab_reports WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
 
     if (!reportResult.rows.length) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found" });
     }
 
     const report = reportResult.rows[0];
@@ -86,7 +93,7 @@ export const getLabReportById = async (req, res) => {
     }
 
     const testsResult = await query(
-      'SELECT * FROM lab_tests WHERE report_id = $1 ORDER BY order_index ASC',
+      "SELECT * FROM lab_tests WHERE report_id = $1 ORDER BY order_index ASC",
       [id]
     );
 
@@ -98,8 +105,8 @@ export const getLabReportById = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Get report error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch report' });
+    console.error("Get report error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch report" });
   }
 };
 
@@ -108,11 +115,10 @@ export const getLabReportById = async (req, res) => {
 ========================================================= */
 export const createLabReport = async (req, res) => {
   try {
-
     const userId = req.user.userId;
     console.log("Creating report for user:", userId);
-  
-    const { lab_name, report_date, notes, status = 'draft' } = req.body;
+
+    const { lab_name, report_date, notes, status = "draft" } = req.body;
 
     const result = await query(
       `
@@ -125,128 +131,289 @@ export const createLabReport = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: 'Lab report created',
+      message: "Lab report created",
       data: result.rows[0],
     });
   } catch (error) {
-    console.error('Create report error:', error);
-    res.status(500).json({ success: false, message: 'Failed to create report' });
+    console.error("Create report error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to create report" });
   }
 };
 
 /* =========================================================
    UPLOAD IMAGE + OCR
 ========================================================= */
+
+// controllers/labReportController.js
+
 export const uploadReportImage = async (req, res) => {
+  let uploadedKey = null;
+  
   try {
     const { id } = req.params;
     const userId = req.user.userId;
 
     if (!req.file) {
-      console.log('❌ No file uploaded');
-      return res.status(400).json({ success: false, message: 'Image required' });
+      return res.status(400).json({ 
+        success: false, 
+        message: "Image required" 
+      });
     }
 
     const reportResult = await query(
-      'SELECT image_key FROM lab_reports WHERE id = $1 AND user_id = $2',
+      "SELECT image_key FROM lab_reports WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
 
     if (!reportResult.rows.length) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: "Report not found" 
+      });
     }
 
     const oldImageKey = reportResult.rows[0].image_key;
 
-    // Delete old image
-    if (oldImageKey) {
-      await deleteFromCloudinary(oldImageKey);
+    // Upload to Cloudinary
+    console.log("📤 Uploading to Cloudinary...");
+    const { url, key } = await uploadToCloudinary(req.file, userId);
+    uploadedKey = key;
+
+    // Update report with image URL immediately
+    await query(
+      "UPDATE lab_reports SET image_url = $1, image_key = $2, updated_at = NOW() WHERE id = $3",
+      [url, key, id]
+    );
+
+    // Create or update processing status record
+    await query(
+      `INSERT INTO ocr_processing_status (report_id, status, progress)
+       VALUES ($1, 'processing', 0)
+       ON CONFLICT (report_id) DO UPDATE 
+       SET status = 'processing', progress = 0, updated_at = NOW()`,
+      [id]
+    );
+
+    console.log("✅ Image uploaded, starting background OCR processing...");
+
+    // Respond immediately
+    res.json({
+      success: true,
+      message: "Image uploaded successfully. OCR processing started.",
+      data: {
+        image_url: url,
+        report_id: id,
+        status: "processing"
+      },
+    });
+
+    // Process OCR in background
+    processOCRInBackground(id, url, oldImageKey).catch(err => {
+      console.error("Background OCR error:", err);
+    });
+
+  } catch (error) {
+    console.error("❌ Upload error:", error);
+    
+    if (uploadedKey) {
+      deleteFromCloudinary(uploadedKey).catch(err =>
+        console.warn("Failed to cleanup image:", err)
+      );
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Upload failed",
+      error: error.message,
+    });
+  }
+};
+
+// Background processing function
+async function processOCRInBackground(reportId, imageUrl, oldImageKey) {
+  const start = Date.now();
+  let testsArray = [];
+  let errorMessage = null;
+
+  try {
+    // Update progress: Starting OCR
+    await query(
+      "UPDATE ocr_processing_status SET progress = 10, updated_at = NOW() WHERE report_id = $1",
+      [reportId]
+    );
+
+    console.log("🔍 Starting OCR extraction...");
+    const extractedText = await extractTextFromImage(imageUrl);
+    
+    if (!extractedText.success || !extractedText.text) {
+      throw new Error("Text extraction failed");
     }
 
-    // Uploaded automatically by multer
-    const { url, key } = await uploadToCloudinary(req.file, userId);
+    // Update progress: OCR complete, starting LLM
+    await query(
+      "UPDATE ocr_processing_status SET progress = 50, updated_at = NOW() WHERE report_id = $1",
+      [reportId]
+    );
 
-    // OCR extraction
-    const start = Date.now();
-    const extractedText = await extractTextFromImage(url);
-    console.log(extractedText)
-    const ocrResult = await structureLabData(extractedText);
+    console.log(`🤖 Starting LLM structuring (text length: ${extractedText.text.length})...`);
     
-    const processingTime = Date.now() - start;
+    try {
+      const ocrResult = await structureLabData(extractedText);
+      testsArray = (Array.isArray(ocrResult) ? ocrResult : []).filter(
+        (test) => test && test.test_name && test.test_name.trim().length > 0
+      );
+    } catch (llmError) {
+      console.warn("⚠️ LLM failed, using fallback parser:", llmError.message);
+      errorMessage = llmError.message;
+      
+      const { fallbackStructureLabData } = await import('../services/structuredOCR.js');
+      const fallbackResult = fallbackStructureLabData(extractedText);
+      testsArray = fallbackResult;
+    }
 
-    // Validate OCR result structure
-    const testsArray = Array.isArray(ocrResult) ? ocrResult : [];
+    const processingTime = Date.now() - start;
     const testsCount = testsArray.length;
     const ocrSuccess = testsCount > 0;
 
-    await transaction(async (client) => {
-      // Update lab_reports with image info
-      await client.query(
-        'UPDATE lab_reports SET image_url = $1, image_key = $2 WHERE id = $3',
-        [url, key, id]
-      );
+    // Update progress: Saving to database
+    await query(
+      "UPDATE ocr_processing_status SET progress = 90, updated_at = NOW() WHERE report_id = $1",
+      [reportId]
+    );
 
+    // Save results to database
+    await transaction(async (client) => {
       // Insert OCR log
       await client.query(
-        `
-        INSERT INTO ocr_logs
-        (report_id, image_url, extracted_text, tests_extracted, status, processing_time_ms)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        `,
+        `INSERT INTO ocr_logs
+         (report_id, image_url, extracted_text, tests_extracted, status, processing_time_ms, error_message)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
-          id,
-          url,
-          extractedText, // Store the raw extracted text
+          reportId,
+          imageUrl,
+          extractedText.text || "",
           testsCount,
-          ocrSuccess ? 'success' : 'failed',
+          ocrSuccess ? "success" : "failed",
           processingTime,
+          errorMessage
         ]
       );
 
-      // Insert lab tests if extraction was successful
-      if (ocrSuccess) {
+      // Insert lab tests
+      if (testsArray.length > 0) {
         for (let i = 0; i < testsArray.length; i++) {
           const test = testsArray[i];
-          
           await client.query(
-            `
-            INSERT INTO lab_tests
-            (report_id, test_name, value, unit, normal_range, order_index)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            `,
+            `INSERT INTO lab_tests
+             (report_id, test_name, value, unit, normal_range, order_index)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
             [
-              id,
-              test.test_name,           // Match the JSON property names
-              test.result,              // "result" not "value"
-              test.units,               // "units" not "unit"
-              test.reference_range,     // "reference_range" not "normalRange"
-              i,
+              reportId,
+              test.test_name,
+              test.result ?? null,
+              test.units ?? null,
+              test.reference_range ?? null,
+              i
             ]
           );
         }
       }
     });
 
+    // Mark as completed
+    await query(
+      "UPDATE ocr_processing_status SET status = 'completed', progress = 100, updated_at = NOW() WHERE report_id = $1",
+      [reportId]
+    );
+
+    // Delete old image
+    if (oldImageKey) {
+      await deleteFromCloudinary(oldImageKey).catch(console.warn);
+    }
+
+    console.log(`✅ Background OCR completed: ${testsCount} tests extracted in ${processingTime}ms`);
+
+  } catch (error) {
+    console.error("❌ Background OCR error:", error);
+    
+    await query(
+      `UPDATE ocr_processing_status 
+       SET status = 'failed', error_message = $1, updated_at = NOW() 
+       WHERE report_id = $2`,
+      [error.message, reportId]
+    );
+  }
+}
+
+// New endpoint to check processing status
+export const getOCRStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    // Verify user owns this report
+    const reportCheck = await query(
+      "SELECT id FROM lab_reports WHERE id = $1 AND user_id = $2",
+      [id, userId]
+    );
+
+    if (!reportCheck.rows.length) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Report not found" 
+      });
+    }
+
+    // Get processing status
+    const statusResult = await query(
+      "SELECT status, progress, error_message, updated_at FROM ocr_processing_status WHERE report_id = $1",
+      [id]
+    );
+
+    if (!statusResult.rows.length) {
+      return res.json({
+        success: true,
+        data: {
+          status: "not_started",
+          progress: 0
+        }
+      });
+    }
+
+    const status = statusResult.rows[0];
+
+    // If completed, get the tests
+    let tests = [];
+    if (status.status === 'completed') {
+      const testsResult = await query(
+        "SELECT * FROM lab_tests WHERE report_id = $1 ORDER BY order_index",
+        [id]
+      );
+      tests = testsResult.rows;
+    }
+
     res.json({
       success: true,
-      message: 'Image uploaded & OCR completed',
       data: {
-        image_url: url,
-        tests_extracted: testsCount,
-        processing_time_ms: processingTime,
-        tests: testsArray, // Include the extracted tests in response
-      },
+        status: status.status,
+        progress: status.progress,
+        error_message: status.error_message,
+        updated_at: status.updated_at,
+        tests: tests
+      }
     });
+
   } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Upload failed',
-      error: error.message 
+    console.error("Status check error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to check status",
+      error: error.message
     });
   }
 };
-
 /* =========================================================
    UPDATE LAB REPORT
 ========================================================= */
@@ -270,12 +437,14 @@ export const updateLabReport = async (req, res) => {
     );
 
     if (!result.rows.length) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found" });
     }
 
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Update failed' });
+    res.status(500).json({ success: false, message: "Update failed" });
   }
 };
 
@@ -288,26 +457,28 @@ export const deleteLabReport = async (req, res) => {
     const userId = req.user.userId;
 
     const result = await query(
-      'SELECT image_key FROM lab_reports WHERE id = $1 AND user_id = $2',
+      "SELECT image_key FROM lab_reports WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
 
     if (!result.rows.length) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found" });
     }
 
     if (result.rows[0].image_key) {
       await deleteFromCloudinary(result.rows[0].image_key);
     }
 
-    await query('DELETE FROM lab_reports WHERE id = $1 AND user_id = $2', [
+    await query("DELETE FROM lab_reports WHERE id = $1 AND user_id = $2", [
       id,
       userId,
     ]);
 
-    res.json({ success: true, message: 'Report deleted' });
+    res.json({ success: true, message: "Report deleted" });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Delete failed' });
+    res.status(500).json({ success: false, message: "Delete failed" });
   }
 };
 
@@ -321,20 +492,22 @@ export const updateTests = async (req, res) => {
     const { tests } = req.body;
 
     if (!Array.isArray(tests)) {
-      return res.status(400).json({ success: false, message: 'Invalid tests' });
+      return res.status(400).json({ success: false, message: "Invalid tests" });
     }
 
     const reportCheck = await query(
-      'SELECT id FROM lab_reports WHERE id = $1 AND user_id = $2',
+      "SELECT id FROM lab_reports WHERE id = $1 AND user_id = $2",
       [id, userId]
     );
 
     if (!reportCheck.rows.length) {
-      return res.status(404).json({ success: false, message: 'Report not found' });
+      return res
+        .status(404)
+        .json({ success: false, message: "Report not found" });
     }
 
     await transaction(async (client) => {
-      await client.query('DELETE FROM lab_tests WHERE report_id = $1', [id]);
+      await client.query("DELETE FROM lab_tests WHERE report_id = $1", [id]);
 
       for (let i = 0; i < tests.length; i++) {
         const t = tests[i];
@@ -349,8 +522,8 @@ export const updateTests = async (req, res) => {
       }
     });
 
-    res.json({ success: true, message: 'Tests updated' });
+    res.json({ success: true, message: "Tests updated" });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Update tests failed' });
+    res.status(500).json({ success: false, message: "Update tests failed" });
   }
 };

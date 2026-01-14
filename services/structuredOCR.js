@@ -1,61 +1,111 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import fetch from "node-fetch";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+/**
+ * Safely extract JSON array from model output
+ */
+function extractJsonArray(text) {
+  // Remove markdown fences if present
+  text = text.replace(/```json|```/gi, "").trim();
+
+  console.log("Inside LLM ",text)
+
+
+
+  // Extract first JSON array found
+  const match = text.match(/\[[\s\S]*\]/);
+  if (!match) {
+    throw new Error("No JSON array found in model response");
+  }
+
+  return JSON.parse(match[0]);
+}
 
 export async function structureLabData(ocrText) {
-  // Use 1.5-flash for faster, more accurate JSON extraction
-  const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash-lite", // Added '-latest'
-});
-
   const prompt = `
-  You are a medical laboratory report data extractor.
+You are a medical laboratory report data extractor.
 
 GOAL:
 Extract ALL laboratory test results from the OCR text EXACTLY as written.
 
-STRICT RULES (DO NOT BREAK):
-- Do NOT summarize or shorten the data
-- Do NOT omit any test result
-- Do NOT infer, calculate, or guess values
-- Extract EVERY test row that appears in the OCR text
-- Preserve numeric values and units as text
-- If a value or reference range is missing or unreadable, use null
-- Do NOT provide medical interpretation
-- Return ONLY valid JSON (no explanations, no markdown)
-OUTPUT FORMAT:
-  [
-    {
-      "test_name": string,
-      "result": string | null,
-      "units": string | null,
-      "reference_range": string | null,
-    }
-  ]
-    PROCESSING INSTRUCTIONS:
-- Process the OCR text line-by-line
-- Treat section headers (e.g., HAEMATOLOGY, BIOCHEMISTRY) as separators, not tests
-- After extraction, verify that every test name present in the OCR text appears in the output JSON
+IMPORTANT:
+- Output MUST be raw JSON only
+- Do NOT use markdown, backticks, or explanations
 
-OCR TEXT (EXTRACT FROM THIS ONLY):
+STRICT RULES:
+- Do NOT summarize
+- Do NOT omit any test
+- Do NOT infer or guess
+- Preserve numbers and units as text
+- If something is missing, use null
+- If test_name is missing or unreadable, DO NOT include that test
+
+OUTPUT FORMAT:
+[
+  {
+    "test_name": string,
+    "result": string | null,
+    "units": string | null,
+    "reference_range": string | null
+  }
+]
+
+OCR TEXT:
 <<<
-    TEXT: ${ocrText}
-  `;
+${ocrText.text}
+>>>
+`;
+
+console.log(prompt)
+console.log("OCR TEXT", ocrText)
 
   try {
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0,
-        // This forces the model to output valid JSON
-        responseMimeType: "application/json",
-      },
+    const res = await fetch("http://localhost:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "deepseek-r1:8b",
+        prompt,
+        stream: false,
+        options: {
+          temperature: 0,
+          top_p: 0.95
+        }
+      })
     });
-    const responseText = result.response.text();
-    return JSON.parse(responseText);
-    
+
+    console.log("Response ", res)
+
+    const data = await res.json();
+    console.log(data)
+
+    if (!data?.response) {
+      throw new Error("Empty response from Ollama");
+    }
+
+    // 1️⃣ Extract JSON safely
+    const parsed = extractJsonArray(data.response);
+
+    if (!Array.isArray(parsed)) {
+      throw new Error("Model did not return a JSON array");
+    }
+
+    // 2️⃣ Filter invalid rows (CRITICAL)
+    const validTests = parsed.filter(t =>
+      t &&
+      typeof t.test_name === "string" &&
+      t.test_name.trim().length > 0
+    );
+
+    // 3️⃣ Log dropped rows for debugging
+    const dropped = parsed.length - validTests.length;
+    if (dropped > 0) {
+      console.warn(`⚠️ Dropped ${dropped} invalid lab test rows`);
+    }
+
+    return validTests;
+
   } catch (error) {
-    console.error("Gemini parsing error:", error);
-    throw new Error("Failed to structure lab data");
+    console.error("Ollama DeepSeek parsing error:", error);
+    throw new Error("Failed to structure lab data using local model");
   }
 }

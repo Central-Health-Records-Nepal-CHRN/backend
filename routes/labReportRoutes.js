@@ -9,6 +9,7 @@ import {
   updateLabReport,
   deleteLabReport,
   updateTests,
+  getOCRStatus
 } from '../controllers/labReportController.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
@@ -28,6 +29,7 @@ router.post('/', createLabReport);
 
 // POST /api/reports/:id/upload
 router.post('/:id/upload', upload.single('image'), uploadReportImage);
+router.get("/:id/ocr-status", getOCRStatus);
 
 // PUT /api/reports/:id
 router.put('/:id', updateLabReport);
