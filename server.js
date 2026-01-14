@@ -5,7 +5,7 @@ import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { auth } from "./lib/auth.js";
 import "dotenv/config"
 import router from "./routes/labReportRoutes.js";
-
+import appointmentRoutes from './routes/appointmentRoutes.js';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -37,6 +37,7 @@ app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
 app.use('/api/reports', router);
+app.use('/api/appointments', appointmentRoutes);
 
 // Example protected route: get the current session
 app.get("/api/me", async (req, res) => {
