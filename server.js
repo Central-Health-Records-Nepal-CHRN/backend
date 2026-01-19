@@ -7,6 +7,7 @@ import "dotenv/config"
 import router from "./routes/labReportRoutes.js";
 import appointmentRoutes from './routes/appointmentRoutes.js';
 import medicationRoutes from './routes/medicationRoutes.js';
+import userRoutes from "./routes/userRoutes.js"
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -39,7 +40,8 @@ app.use(express.json());
 
 app.use('/api/reports', router);
 app.use('/api/appointments', appointmentRoutes);
-app.use('/api/medications', medicationRoutes)
+app.use('/api/medications', medicationRoutes);
+app.use('/api/users', userRoutes);
 
 // Example protected route: get the current session
 app.get("/api/me", async (req, res) => {
