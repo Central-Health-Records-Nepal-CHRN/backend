@@ -86,6 +86,7 @@ export const createAppointment = async (req, res) => {
       address,
       notes,
       status = 'scheduled',
+      reminder_minutes = 60
     } = req.body;
 
     // Validation
@@ -108,9 +109,9 @@ export const createAppointment = async (req, res) => {
       INSERT INTO appointments (
         user_id, doctor_name, specialty, appointment_type,
         appointment_date, appointment_time, location, phone_number,
-        address, notes, status
+        address, notes, status, reminder_minutes
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
       `,
       [
@@ -125,6 +126,7 @@ export const createAppointment = async (req, res) => {
         address,
         notes,
         status,
+        reminder_minutes
       ]
     );
 
@@ -151,6 +153,7 @@ export const updateAppointment = async (req, res) => {
       address,
       notes,
       status,
+      reminder_minutes,
     } = req.body;
 
     const result = await query(
@@ -166,8 +169,9 @@ export const updateAppointment = async (req, res) => {
           address = COALESCE($8, address),
           notes = COALESCE($9, notes),
           status = COALESCE($10, status),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $11 AND user_id = $12
+          updated_at = CURRENT_TIMESTAMP,
+          reminder_minutes= COALESCE($11,  reminder_minutes)
+      WHERE id = $12 AND user_id = $13
       RETURNING *
       `,
       [
@@ -181,6 +185,7 @@ export const updateAppointment = async (req, res) => {
         address,
         notes,
         status,
+        reminder_minutes,
         id,
         userId,
       ]

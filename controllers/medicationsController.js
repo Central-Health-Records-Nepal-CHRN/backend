@@ -107,6 +107,7 @@ export const createMedication = async (req, res) => {
       side_effects,
       notes,
       reminder_enabled = true,
+      reminder_minutes = 0
     } = req.body;
 
     // Validation
@@ -141,9 +142,9 @@ export const createMedication = async (req, res) => {
         user_id, medication_name, medication_type, dosage,
         frequency_per_day, quantity_per_dose, medication_category,
         times, start_date, end_date, instructions, side_effects,
-        notes, ai_description, reminder_enabled
+        notes, ai_description, reminder_enabled, reminder_minutes
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
       `,
       [
@@ -162,6 +163,7 @@ export const createMedication = async (req, res) => {
         notes,
         null, // ai_description will be null initially
         reminder_enabled,
+        reminder_minutes
       ]
     );
 
