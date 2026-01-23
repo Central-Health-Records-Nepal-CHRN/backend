@@ -245,6 +245,7 @@ export const updateMedication = async (req, res) => {
       notes,
       is_active,
       reminder_enabled,
+      reminder_minutes
     } = req.body;
 
     // If medication name or dosage changed, regenerate AI description in background
@@ -279,8 +280,9 @@ export const updateMedication = async (req, res) => {
           notes = COALESCE($12, notes),
           is_active = COALESCE($13, is_active),
           reminder_enabled = COALESCE($14, reminder_enabled),
+          reminder_minutes = COALESCE($15, reminder_minutes),
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $15 AND user_id = $16
+      WHERE id = $16 AND user_id = $17
       RETURNING *
       `,
       [
@@ -298,6 +300,7 @@ export const updateMedication = async (req, res) => {
         notes,
         is_active,
         reminder_enabled,
+        reminder_minutes,
         id,
         userId,
       ]
@@ -490,9 +493,9 @@ export const getTodaysMedicationsWithStatus = async (req, res) => {
 // Update the markMedicationTaken function
 export const markMedicationTaken = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id: medicationId } = req.params;
     const userId = req.user.userId;
-    const { scheduled_time, status = 'taken', notes } = req.body;
+    const { scheduled_time, status = 'taken', notes = null } = req.body;
 
     if (!scheduled_time) {
       return res.status(400).json({
@@ -501,7 +504,6 @@ export const markMedicationTaken = async (req, res) => {
       });
     }
 
-    // Validate status
     if (!['taken', 'skipped', 'missed'].includes(status)) {
       return res.status(400).json({
         success: false,
@@ -509,33 +511,78 @@ export const markMedicationTaken = async (req, res) => {
       });
     }
 
+    // 1️⃣ Fetch medication name (and validate ownership)
+    const medResult = await query(
+      `SELECT medication_name FROM medications WHERE id = $1 AND user_id = $2`,
+      [medicationId, userId]
+    );
+
+    if (medResult.rowCount === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Medication not found',
+      });
+    }
+
+    const medicationName = medResult.rows[0].name;
+
+    // 2️⃣ Insert or update ONE log only
     const result = await query(
       `
-      INSERT INTO medication_logs (medication_id, user_id, scheduled_time, taken_at, status, notes)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      ON CONFLICT (medication_id, scheduled_time) 
-      DO UPDATE SET 
-        taken_at = CASE WHEN $5 = 'taken' THEN NOW() ELSE NULL END,
-        status = $5,
-        notes = $6
-      RETURNING *
+      INSERT INTO medication_logs (
+        medication_id,
+        user_id,
+        medication_name,
+        scheduled_time,
+        taken_at,
+        status,
+        notes
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        CASE WHEN $5 = 'taken' THEN NOW() ELSE NULL END,
+        $5,
+        $6
+      )
+      ON CONFLICT (medication_id, user_id, scheduled_time)
+      DO UPDATE SET
+        status = EXCLUDED.status,
+        notes = EXCLUDED.notes,
+        medication_name = EXCLUDED.medication_name,
+        taken_at = CASE
+          WHEN EXCLUDED.status = 'taken'
+               AND medication_logs.taken_at IS NULL
+          THEN NOW()
+          ELSE medication_logs.taken_at
+        END
+      RETURNING *;
       `,
       [
-        id,
+        medicationId,
         userId,
+        medicationName,
         scheduled_time,
-        status === 'taken' ? new Date() : null,
         status,
         notes,
       ]
     );
 
-    res.json({ success: true, data: result.rows[0] });
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
   } catch (error) {
     console.error('Mark medication error:', error);
-    res.status(500).json({ success: false, message: 'Failed to update medication status' });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update medication status',
+    });
   }
 };
+
 
 // Add endpoint to get next dose time
 export const getNextDoseTime = async (req, res) => {
@@ -612,3 +659,154 @@ async function createMedicationReminders(medicationId, userId, times, startDate,
     );
   }
 }
+
+// Get all medication logs for user
+export const getMedicationLogs = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { page = 1, limit = 50, status } = req.query;
+    const offset = (page - 1) * limit;
+
+    let statusFilter = '';
+    const params = [userId, limit, offset];
+
+    if (status && ['taken', 'skipped', 'missed'].includes(status)) {
+      statusFilter = 'AND ml.status = $4';
+      params.push(status);
+    }
+
+    const result = await query(
+      `SELECT 
+        ml.id,
+        ml.medication_id,
+        ml.scheduled_time,
+        ml.taken_at,
+        ml.status,
+        ml.notes,
+        ml.created_at,
+        m.medication_name,
+        m.medication_type,
+        m.dosage,
+        m.quantity_per_dose
+       FROM medication_logs ml
+       JOIN medications m ON ml.medication_id = m.id
+       WHERE ml.user_id = $1 ${statusFilter}
+       ORDER BY ml.scheduled_time DESC
+       LIMIT $2 OFFSET $3`,
+      params
+    );
+
+    // Get total count
+    const countResult = await query(
+      `SELECT COUNT(*) FROM medication_logs 
+       WHERE user_id = $1 ${statusFilter}`,
+      statusFilter ? [userId, status] : [userId]
+    );
+
+    // Parse times for each medication
+    const logs = result.rows.map((log) => ({
+      ...log,
+      scheduled_time: log.scheduled_time,
+      taken_at: log.taken_at,
+    }));
+
+    res.json({
+      success: true,
+      data: logs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: parseInt(countResult.rows[0].count),
+      },
+    });
+  } catch (error) {
+    console.error('Get medication logs error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch medication logs' });
+  }
+};
+
+// Get logs by date range
+export const getLogsByDateRange = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { start_date, end_date } = req.query;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({
+        success: false,
+        message: 'start_date and end_date are required',
+      });
+    }
+
+    const result = await query(
+      `SELECT 
+        ml.id,
+        ml.medication_id,
+        ml.scheduled_time,
+        ml.taken_at,
+        ml.status,
+        ml.notes,
+        ml.created_at,
+        m.medication_name,
+        m.medication_type,
+        m.dosage,
+        m.quantity_per_dose
+       FROM medication_logs ml
+       JOIN medications m ON ml.medication_id = m.id
+       WHERE ml.user_id = $1 
+       AND DATE(ml.scheduled_time) >= $2 
+       AND DATE(ml.scheduled_time) <= $3
+       ORDER BY ml.scheduled_time DESC`,
+      [userId, start_date, end_date]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    console.error('Get logs by date range error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch logs' });
+  }
+};
+
+// Get medication logs statistics
+export const getLogsStatistics = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    // Get statistics for the last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const stats = await query(
+      `SELECT 
+        COUNT(*) as total_logs,
+        COUNT(CASE WHEN status = 'taken' THEN 1 END) as taken_count,
+        COUNT(CASE WHEN status = 'skipped' THEN 1 END) as skipped_count,
+        COUNT(CASE WHEN status = 'missed' THEN 1 END) as missed_count,
+        COUNT(CASE WHEN DATE(scheduled_time) = CURRENT_DATE THEN 1 END) as today_count,
+        COUNT(CASE WHEN DATE(scheduled_time) = CURRENT_DATE AND status = 'taken' THEN 1 END) as today_taken
+       FROM medication_logs
+       WHERE user_id = $1 AND scheduled_time >= $2`,
+      [userId, thirtyDaysAgo.toISOString()]
+    );
+
+    // Get adherence rate (percentage of medications taken vs total)
+    const adherenceRate = stats.rows[0].total_logs > 0
+      ? ((parseInt(stats.rows[0].taken_count) / parseInt(stats.rows[0].total_logs)) * 100).toFixed(1)
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        ...stats.rows[0],
+        adherence_rate: adherenceRate,
+        period: '30 days',
+      },
+    });
+  } catch (error) {
+    console.error('Get logs statistics error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch statistics' });
+  }
+};
