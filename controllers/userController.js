@@ -10,7 +10,7 @@ export const getUserProfile = async (req, res) => {
     const result = await query(
       `SELECT id, email, name, phone, date_of_birth, gender, 
               blood_type, height, weight, avatar_url, 
-              "createdAt", "updatedAt" 
+              "createdAt", "updatedAt", role 
        FROM "user" WHERE id = $1`,
       [userId]
     );
