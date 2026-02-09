@@ -7,22 +7,34 @@ export const getEnrollmentNotifications = async (req, res) => {
     const userId = req.user.userId;
 
     const result = await query(
-      `SELECT 
-        en.*,
-        p.specialty, p.clinic_name,
-        u.name as provider_name, u.email as provider_email
-       FROM enrollment_notifications en
-       JOIN providers p ON en.provider_id = p.id
-       JOIN users u ON p.user_id = u.id
-       WHERE en.patient_id = $1
-       ORDER BY en.created_at DESC`,
-      [userId]
+      `
+  SELECT 
+    en.*,
+    p.specialty,
+    p.clinic_name,
+    u.name AS provider_name,
+    u.email AS provider_email,
+    ppe.status AS status
+  FROM enrollment_notifications en
+  JOIN providers p 
+    ON en.provider_id = p.id
+  JOIN "user" u 
+    ON p.user_id = u.id
+  LEFT JOIN patient_provider_enrollments ppe
+    ON ppe.provider_id = en.provider_id
+   AND ppe.patient_id = en.patient_id
+  WHERE en.patient_id = $1
+  ORDER BY en.created_at DESC
+  `,
+      [userId],
     );
 
     res.json({ success: true, data: result.rows });
   } catch (error) {
-    console.error('Get enrollment notifications error:', error);
-    res.status(500).json({ success: false, message: 'Failed to fetch notifications' });
+    console.error("Get enrollment notifications error:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to fetch notifications" });
   }
 };
 
@@ -125,7 +137,7 @@ export const getEnrolledProviders = async (req, res) => {
         ppe.enrolled_at
        FROM patient_provider_enrollments ppe
        JOIN providers p ON ppe.provider_id = p.id
-       JOIN users u ON p.user_id = u.id
+       JOIN "user" u ON p.user_id = u.id
        WHERE ppe.patient_id = $1 AND ppe.status = 'accepted'
        ORDER BY ppe.enrolled_at DESC`,
       [userId]

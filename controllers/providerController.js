@@ -320,8 +320,8 @@ export const getPatientDetails = async (req, res) => {
     // Get patient details
     const patientResult = await query(
       `SELECT id, name, email, date_of_birth, gender, phone, 
-              blood_type, height, weight, avatar_url, created_at
-       FROM "user WHERE id = $1`,
+              blood_type, height, weight, avatar_url, "createdAt"
+       FROM "user" WHERE id = $1`,
       [patientId]
     );
 
@@ -411,7 +411,7 @@ export const getPatientMedications = async (req, res) => {
     const result = await query(
       `SELECT * FROM medications 
        WHERE user_id = $1 
-       ORDER BY is_active DESC, created_at DESC`,
+       ORDER BY is_active DESC, start_date DESC`,
       [patientId]
     );
 
