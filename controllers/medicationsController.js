@@ -530,35 +530,34 @@ export const markMedicationTaken = async (req, res) => {
     const result = await query(
       `
       INSERT INTO medication_logs (
-        medication_id,
-        user_id,
-        medication_name,
-        scheduled_time,
-        taken_at,
-        status,
-        notes
-      )
-      VALUES (
-        $1,
-        $2,
-        $3,
-        $4,
-        CASE WHEN $5 = 'taken' THEN NOW() ELSE NULL END,
-        $5,
-        $6
-      )
-      ON CONFLICT (medication_id, user_id, scheduled_time)
-      DO UPDATE SET
-        status = EXCLUDED.status,
-        notes = EXCLUDED.notes,
-        medication_name = EXCLUDED.medication_name,
-        taken_at = CASE
-          WHEN EXCLUDED.status = 'taken'
-               AND medication_logs.taken_at IS NULL
-          THEN NOW()
-          ELSE medication_logs.taken_at
-        END
-      RETURNING *;
+  medication_id,
+  user_id,
+  medication_name,
+  scheduled_time,
+  taken_at,
+  status,
+  notes
+)
+VALUES (
+  $1,
+  $2,
+  $3,
+  $4,
+  CASE WHEN $5 = 'taken' THEN NOW() ELSE NULL END,
+  $5,
+  $6
+)
+ON CONFLICT (medication_id, user_id, scheduled_time)
+DO UPDATE SET
+  status = EXCLUDED.status,
+  notes = EXCLUDED.notes,
+  medication_name = EXCLUDED.medication_name,
+  taken_at = CASE
+    WHEN EXCLUDED.status = 'taken' THEN NOW()
+    ELSE NULL
+  END
+RETURNING *;
+;
       `,
       [
         medicationId,

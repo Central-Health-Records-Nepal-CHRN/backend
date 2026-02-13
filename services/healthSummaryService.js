@@ -173,31 +173,51 @@ class OllamaService {
     } = labReportData;
     console.log("String:d" ,JSON.stringify(test_results, null, 2));
 
-    return `You are a medical AI assistant. Analyze the following lab report and provide a clear, concise summary.
+    return `
+You are generating a clinical summary for a Health Information System.
 
-Lab Report Details:
-- Report Name: ${report_name}
-- Report Date: ${report_date}
-- Patient Age: ${patient_age || 'Not specified'}
-- Patient Gender: ${patient_gender || 'Not specified'}
+STRICT OUTPUT RULES (MUST FOLLOW):
+- Do NOT write introductions like "Here is", "This report shows", "Based on", etc.
+- Do NOT address the reader.
+- Do NOT explain what you are doing.
+- Do NOT restate report name or metadata unless medically relevant.
+- Output must start immediately with the clinical content.
+- Use a professional medical tone, not conversational AI tone.
+- Ignore any null, undefined, or missing values.
+- Do NOT add conclusions outside the requested sections.
 
-Test Results (JSON format):
+OUTPUT FORMAT (follow exactly):
+
+Overview:
+<direct summary>
+
+Key Findings:
+- ...
+
+Normal vs Abnormal:
+- ...
+
+Clinical Significance:
+...
+
+Recommendations:
+...
+
+Important Notes:
+...
+
+Lab Data: (This is only raw data, do NOT include it in the summary)
+Report Name: ${report_name}
+Report Date: ${report_date}
+Patient Age: ${patient_age || 'Not specified'}
+Patient Gender: ${patient_gender || 'Not specified'}
+
+Test Results (JSON):
 ${JSON.stringify(test_results, null, 2)}
 
-Additional Notes: ${additional_notes || 'None'}
-
-Please provide a comprehensive medical summary that includes:
-
-1. **Overview**: A brief introduction to what this lab report covers
-2. **Key Findings**: List the most important test results and their significance
-3. **Normal vs Abnormal Values**: Clearly identify which values are within normal range and which are concerning
-4. **Clinical Significance**: Explain what the results might indicate about the patient's health
-5. **Recommendations**: Suggest any follow-up actions or tests that might be needed
-6. **Important Notes**: Any critical findings that require immediate attention
-
-Format your response in clear sections with headers. Use medical terminology but explain it in terms a patient can understand. Be precise but compassionate in your analysis. and if there any undefined or null values or missing values ignore it.
-
-Summary:`;
+Additional Notes:
+${additional_notes || 'None'}
+`;
   }
 
   // Generate insights for specific test values
