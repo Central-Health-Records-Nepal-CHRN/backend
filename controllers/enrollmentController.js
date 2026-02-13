@@ -104,6 +104,8 @@ export const respondToEnrollment = async (req, res) => {
       });
     }
 
+    const userName = await query(`SELECT name FROM "user" WHERE id = $1`, [userId]);
+
     const status = action === 'accept' ? 'accepted' : 'rejected';
     const enrolledAt = action === 'accept' ? 'CURRENT_TIMESTAMP' : 'NULL';
 
@@ -114,6 +116,13 @@ export const respondToEnrollment = async (req, res) => {
        WHERE id = $2`,
       [status, enrollmentId]
     );
+    const message = `Your enrollment request for ${userName.rows[0].name} has been ${status}`;
+
+    await query(
+        `INSERT INTO provider_notifications 
+    (enrollment_id, patient_id, message, is_read, created_at)
+    VALUES ($1, $2, $3, false, CURRENT_TIMESTAMP)
+    RETURNING *;`, [enrollmentId, userId, message]);
 
     res.json({
       success: true,

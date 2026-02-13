@@ -9,7 +9,12 @@ import {
   updateLabReport,
   deleteLabReport,
   updateTests,
-  getOCRStatus
+  getOCRStatus,
+  generateLabReportSummary,
+  streamLabReportSummary,
+  analyzeTestValue,
+  compareLabReports,
+  checkOllamaHealth,
 } from '../controllers/labReportController.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
@@ -39,5 +44,12 @@ router.put('/:id/tests', updateTests);
 
 // DELETE /api/reports/:id
 router.delete('/:id', deleteLabReport);
+
+// AI-powered endpoints
+router.post('/:reportId/generate-summary', generateLabReportSummary);
+router.get('/:reportId/stream-summary', streamLabReportSummary);
+router.post('/analyze-test-value', analyzeTestValue);
+router.post('/compare-reports', compareLabReports);
+router.get('/ollama/health', checkOllamaHealth);
 
 export default router;

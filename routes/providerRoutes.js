@@ -10,6 +10,10 @@ import {
   getPatientAppointments,
   getPatientMedications,
   getPendingEnrollments,
+  getProviderNotifications,
+  getPatientMedicationLogs,
+  getPatientLabReports,
+  getPatientLabReportDetail
 } from '../controllers/providerController.js';
 import { requireAuth } from '../middleware/requireAuth.js';
 
@@ -26,5 +30,9 @@ router.get('/patients/:patientId/appointments', getPatientAppointments);
 router.get('/patients/:patientId/medications', getPatientMedications);
 router.post('/enrollments/invite', sendEnrollmentInvitation);
 router.get('/enrollments/pending', getPendingEnrollments);
+router.get('/notifications', getProviderNotifications);
+router.get('/patients/:patientId/medication-logs', getPatientMedicationLogs);
+router.get('/patients/:patientId/lab-reports', getPatientLabReports);
+router.get('/patients/:patientId/lab-reports/:reportId', getPatientLabReportDetail)
 
 export default router;

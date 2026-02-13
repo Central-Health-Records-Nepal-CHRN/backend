@@ -456,3 +456,224 @@ export const getPendingEnrollments = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch pending enrollments' });
   }
 };
+
+export const getProviderNotifications = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    console.log('Fetching provider notifications for userId:', userId);
+
+    const result = await query(
+      `SELECT * FROM provider_notifications 
+       WHERE is_read = false
+       ORDER BY created_at DESC`,
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get provider notifications error:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch notifications' }); 
+  }
+  }
+
+  export const getPatientMedicationLogs = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { patientId } = req.params;
+
+    const providerResult = await query('SELECT id FROM providers WHERE user_id = $1', [userId]);
+     
+    if (!providerResult.rows.length) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const providerId = providerResult.rows[0].id;
+    // Verify enrollment
+    const enrollment = await query(
+      `SELECT id FROM patient_provider_enrollments 
+       WHERE patient_id = $1 AND provider_id = $2 AND status = 'accepted'`,
+      [patientId, providerId]
+    );
+
+    if (enrollment.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this patient',
+      });
+    }
+
+    const logs = await query(
+      `SELECT 
+        ml.id,
+        ml.scheduled_time,
+        ml.taken_at,
+        ml.status,
+        ml.notes,
+        m.medication_name,
+        m.dosage,
+        m.quantity_per_dose
+       FROM medication_logs ml
+       JOIN medications m ON ml.medication_id = m.id
+       WHERE ml.user_id = $1
+       ORDER BY ml.scheduled_time DESC
+       LIMIT 100`,
+      [patientId]
+    );
+
+    res.json({
+      success: true,
+      data: logs.rows,
+    });
+  } catch (error) {
+    console.error('Get patient medication logs error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch medication logs',
+    });
+  }
+};
+
+// Get patient lab reports
+export const getPatientLabReports = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { patientId } = req.params;
+
+      const providerResult = await query('SELECT id FROM providers WHERE user_id = $1', [userId]);
+     
+    if (!providerResult.rows.length) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const providerId = providerResult.rows[0].id;
+
+    // Verify enrollment
+    const enrollment = await query(
+      `SELECT id FROM patient_provider_enrollments 
+       WHERE patient_id = $1 AND provider_id = $2 AND status = 'accepted'`,
+      [patientId, providerId]
+    );
+
+    if (enrollment.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this patient',
+      });
+    }
+
+    const reports = await query(
+      `SELECT 
+        lr.id,
+        lr.lab_name,
+        lr.report_date,
+        lr.image_url,
+        lr.notes,
+        lr.ai_summary,
+        lr.created_at,
+        (SELECT COUNT(*) FROM lab_tests WHERE report_id = lr.id) as test_count
+       FROM lab_reports lr
+       WHERE lr.user_id = $1
+       ORDER BY lr.report_date DESC`,
+      [patientId]
+    );
+
+    res.json({
+      success: true,
+      data: reports.rows,
+    });
+  } catch (error) {
+    console.error('Get patient lab reports error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch lab reports',
+    });
+  }
+};
+
+// controllers/providerController.js - Add this function
+
+// Get patient lab report detail
+export const getPatientLabReportDetail = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { patientId, reportId } = req.params;
+      const providerResult = await query('SELECT id FROM providers WHERE user_id = $1', [userId]);
+     
+    if (!providerResult.rows.length) {
+      return res.status(404).json({ success: false, message: 'Provider not found' });
+    }
+
+    const providerId = providerResult.rows[0].id;
+
+    console.log('📋 Getting lab report detail:', { providerId, patientId, reportId });
+
+    // Verify enrollment
+    const enrollment = await query(
+      `SELECT id FROM patient_provider_enrollments 
+       WHERE patient_id = $1 AND provider_id = $2 AND status = 'accepted'`,
+      [patientId, providerId]
+    );
+
+    if (enrollment.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to view this patient data',
+      });
+    }
+
+    // Get lab report details
+    const reportResult = await query(
+      `SELECT 
+        lr.id,
+        lr.lab_name,
+        lr.report_date,
+        lr.image_url,
+        lr.notes,
+        lr.ai_summary,
+        lr.ai_summary_generated_at,
+        lr.created_at,
+        lr.updated_at
+       FROM lab_reports lr
+       WHERE lr.id = $1 AND lr.user_id = $2`,
+      [reportId, patientId]
+    );
+
+    if (reportResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Lab report not found',
+      });
+    }
+
+    const report = reportResult.rows[0];
+
+    // Get test results for this report
+    const testsResult = await query(
+      `SELECT 
+        id,
+        test_name,
+        value,
+        unit,
+        normal_range,
+        created_at
+       FROM lab_tests
+       WHERE report_id = $1
+       ORDER BY test_name ASC`,
+      [reportId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        report,
+        tests: testsResult.rows,
+      },
+    });
+
+  } catch (error) {
+    console.error('Get patient lab report detail error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch lab report details',
+      error: error.message,
+    });
+  }
+};
